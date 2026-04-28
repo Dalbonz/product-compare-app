@@ -1,60 +1,55 @@
-import asyncio
-from playwright.async_api import async_playwright
+import requests
 from bs4 import BeautifulSoup
 
-async def fetch_device(name):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+BASE = "https://www.gsmarena.com/"
 
-        data = {}
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 
-        try:
-            search_url = f"https://www.gsmarena.com/res.php3?sSearch={name.replace(' ', '+')}"
-            await page.goto(search_url)
-            await page.wait_for_selector(".makers")
+def search_device(name):
+    url = f"{BASE}res.php3?sSearch={name.replace(' ', '+')}"
+    res = requests.get(url, headers=headers, timeout=10)
+    soup = BeautifulSoup(res.text, "html.parser")
 
-            links = await page.locator(".makers a").all()
+    link = soup.select_one(".makers a")
+    if not link:
+        return None
 
-            if not links:
-                return {}
+    return BASE + link.get("href")
 
-            href = await links[0].get_attribute("href")
-            url = "https://www.gsmarena.com/" + href
+def parse_device(url):
+    res = requests.get(url, headers=headers, timeout=10)
+    soup = BeautifulSoup(res.text, "html.parser")
 
-            await page.goto(url)
-            await page.wait_for_selector("#specs-list")
+    data = {}
 
-            soup = BeautifulSoup(await page.content(), "html.parser")
+    # 이름
+    title = soup.select_one(".specs-phone-name-title")
+    if title:
+        data["name"] = title.text.strip()
 
-            # 이미지
-            img = soup.select_one(".specs-photo-main img")
-            if img:
-                data["image"] = img.get("src") or img.get("data-src")
+    # 이미지
+    img = soup.select_one(".specs-photo-main img")
+    if img:
+        data["image"] = img.get("src")
 
-            # 이름
-            title = soup.select_one(".specs-phone-name-title")
-            if title:
-                data["name"] = title.text.strip()
+    # 스펙
+    for table in soup.select("#specs-list table"):
+        cat = table.find("th").text.strip()
 
-            # 스펙
-            for table in soup.select("#specs-list table"):
-                cat = table.find("th").text.strip()
+        for tr in table.find_all("tr"):
+            ttl = tr.find("td", class_="ttl")
+            nfo = tr.find("td", class_="nfo")
 
-                for tr in table.find_all("tr"):
-                    ttl = tr.find("td", class_="ttl")
-                    nfo = tr.find("td", class_="nfo")
+            if ttl and nfo:
+                key = f"{cat}::{ttl.text.strip()}"
+                data[key] = nfo.text.strip()
 
-                    if ttl and nfo:
-                        key = f"{cat}::{ttl.text.strip()}"
-                        data[key] = nfo.text.strip()
-
-        except Exception as e:
-            print(e)
-
-        await browser.close()
-        return data
-
+    return data
 
 def get_device(name):
-    return asyncio.run(fetch_device(name))
+    url = search_device(name)
+    if not url:
+        return {}
+    return parse_device(url)
