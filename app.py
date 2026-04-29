@@ -1,123 +1,167 @@
 import streamlit as st
+from scraper import get_device
+from chip_perf import find_chip, compare_chips
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Tablet Compare Pro", layout="wide")
 
-# -----------------------------
-# 더미 데이터 (UI 검증용)
-# -----------------------------
-DUMMY = {
-    "iPad Pro M4": {
-        "image": "https://fdn2.gsmarena.com/vv/bigpic/apple-ipad-pro-11-2024.jpg",
-        "release": "2024",
-        "price": "150만원",
-        "size": "444g",
-        "display": "11 OLED 120Hz",
-        "chipset": "Apple M4",
-        "perf": 100,
-        "memory": "16GB"
-    },
-    "Galaxy Tab S10": {
-        "image": "https://fdn2.gsmarena.com/vv/bigpic/samsung-galaxy-tab-s9.jpg",
-        "release": "2023",
-        "price": "130만원",
-        "size": "500g",
-        "display": "11 AMOLED 120Hz",
-        "chipset": "Snapdragon 8 Gen3",
-        "perf": 85,
-        "memory": "12GB"
-    },
-    "Xiaomi Pad 7": {
-        "image": "https://fdn2.gsmarena.com/vv/bigpic/xiaomi-pad-6.jpg",
-        "release": "2022",
-        "price": "90만원",
-        "size": "480g",
-        "display": "LCD 144Hz",
-        "chipset": "Dimensity",
-        "perf": 70,
-        "memory": "8GB"
+# ====================== 스타일 ======================
+st.markdown("""
+<style>
+    .main {background-color: #f8f9fa;}
+    .title {
+        font-size: 32px;
+        font-weight: 700;
+        color: #1d1d1f;
+        margin-bottom: 24px;
     }
-}
+    .card {
+        background: white;
+        padding: 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.07);
+        text-align: center;
+        height: 100%;
+    }
+    .spec-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+    .spec-table th {
+        background: #f1f3f5;
+        padding: 14px 10px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #ddd;
+    }
+    .spec-table td {
+        padding: 14px 10px;
+        border-bottom: 1px solid #eee;
+        text-align: center;
+    }
+    .win { color: #00c853; font-weight: 600; }
+    .lose { color: #ff3b30; font-weight: 600; }
+    .center { text-align: center; }
+</style>
+""", unsafe_allow_html=True)
 
-# -----------------------------
-# UI 상태
-# -----------------------------
+st.markdown('<h1 class="title">Tablet Compare Pro</h1>', unsafe_allow_html=True)
+
+# ====================== 세션 상태 ======================
 if "devices" not in st.session_state:
-    st.session_state.devices = []
+    st.session_state.devices = ["", "", ""]
 
-# -----------------------------
-# 타이틀
-# -----------------------------
-st.title("Tablet Compare Pro")
+# ====================== 제품 입력 영역 ======================
+cols = st.columns(len(st.session_state.devices))
 
-# -----------------------------
-# 제품 선택 UI
-# -----------------------------
-cols = st.columns(len(st.session_state.devices) + 1)
+device_data = []
 
-# 기존 카드
-for i, dev in enumerate(st.session_state.devices):
-    with cols[i]:
-        st.image(DUMMY[dev]["image"], use_container_width=True)
-        st.markdown(f"**{dev}**")
+for i, col in enumerate(cols):
+    with col:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
+        st.subheader(f"제품 {i+1}")
+        
+        name = st.text_input(
+            "모델명 입력", 
+            value=st.session_state.devices[i], 
+            key=f"input_{i}",
+            placeholder="예: iPad Pro 11 M4"
+        )
+        st.session_state.devices[i] = name
 
-# + 버튼
-with cols[-1]:
-    if st.button("+"):
+        if name.strip():
+            with st.spinner("스펙을 불러오는 중입니다..."):
+                data = get_device(name.strip())
+                device_data.append(data)
+                
+                if data.get("image"):
+                    st.image(data["image"], use_container_width=True)
+                
+                display_name = data.get("name", name)
+                st.markdown(f"**{display_name}**")
+        else:
+            device_data.append({})
+            st.info("모델명을 입력하세요")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ====================== 버튼 영역 ======================
+col1, col2, col3 = st.columns([1, 1, 3])
+
+with col1:
+    if st.button("＋ 제품 추가", use_container_width=True):
         if len(st.session_state.devices) < 5:
-            st.session_state.devices.append("iPad Pro M4")
+            st.session_state.devices.append("")
+            st.rerun()
 
-# -----------------------------
-# 제품 선택 드롭다운
-# -----------------------------
-for i in range(len(st.session_state.devices)):
-    st.session_state.devices[i] = st.selectbox(
-        f"제품 {i+1}",
-        list(DUMMY.keys()),
-        index=list(DUMMY.keys()).index(st.session_state.devices[i]),
-        key=f"select_{i}"
-    )
+with col2:
+    if st.button("초기화", use_container_width=True):
+        st.session_state.devices = ["", "", ""]
+        st.rerun()
 
-# -----------------------------
-# GO 버튼
-# -----------------------------
-if st.button("GO"):
-    st.session_state.show_table = True
+with col3:
+    compare_btn = st.button("비교 시작", type="primary", use_container_width=True)
 
-# -----------------------------
-# 테이블
-# -----------------------------
-if st.session_state.get("show_table"):
+# ====================== 비교 결과 ======================
+if compare_btn:
+    valid_devices = [d for d in device_data if d and d.get("name")]
+    
+    if len(valid_devices) < 2:
+        st.error("최소 2개 이상의 제품을 입력해주세요.")
+    else:
+        st.markdown("### 비교 결과")
+        
+        base_data = valid_devices[0]
+        base_chip = find_chip(base_data.get("Platform::Chipset") or base_data.get("chipset", ""))
 
-    st.markdown("## 비교 결과")
+        # 비교 테이블
+        keys = [
+            ("출시일", "Launch::Announced"),
+            ("가격", "Misc::Price"),
+            ("크기 (mm)", "Body::Dimensions"),
+            ("디스플레이", "Display::Size"),
+            ("주사율", "Display::Refresh rate"),
+            ("메모리", "Memory::Internal"),
+            ("배터리", "Battery::Type"),
+        ]
 
-    headers = ["항목"] + st.session_state.devices
-
-    rows = [
-        ["출시일"] + [DUMMY[d]["release"] for d in st.session_state.devices],
-        ["가격"] + [DUMMY[d]["price"] for d in st.session_state.devices],
-        ["크기"] + [DUMMY[d]["size"] for d in st.session_state.devices],
-        ["디스플레이"] + [DUMMY[d]["display"] for d in st.session_state.devices],
-        ["AP"] + [DUMMY[d]["chipset"] for d in st.session_state.devices],
-        ["성능비교"] + [DUMMY[d]["perf"] for d in st.session_state.devices],
-        ["메모리"] + [DUMMY[d]["memory"] for d in st.session_state.devices],
-    ]
-
-    # 스타일 테이블
-    html = "<table style='width:100%; border-collapse:collapse;'>"
-
-    # header
-    html += "<tr>" + "".join([f"<th style='padding:10px; background:#eee'>{h}</th>" for h in headers]) + "</tr>"
-
-    for row in rows:
-        html += "<tr>"
-        for i, cell in enumerate(row):
-            if row[0] == "성능비교" and i > 0:
-                color = "green" if cell >= 100 else "orange" if cell >= 80 else "red"
-                html += f"<td style='padding:8px; text-align:center; color:{color}'><b>{cell}%</b></td>"
-            else:
-                html += f"<td style='padding:8px; text-align:center'>{cell}</td>"
+        html = """
+        <table class="spec-table">
+            <tr>
+                <th style="width:180px">항목</th>
+        """
+        for d in valid_devices:
+            html += f"<th class='center'>{d.get('name', 'Unknown')}</th>"
         html += "</tr>"
 
-    html += "</table>"
+        for label, key in keys:
+            html += f"<tr><td><b>{label}</b></td>"
+            for d in valid_devices:
+                value = d.get(key, "-")
+                html += f"<td class='center'>{value}</td>"
+            html += "</tr>"
 
-    st.markdown(html, unsafe_allow_html=True)
+        # AP 성능 비교
+        if base_chip:
+            html += "<tr><td><b>AP 성능 비교</b><br><small>(기준 기기 대비 %)</small></td>"
+            for d in valid_devices:
+                target_chip = find_chip(d.get("Platform::Chipset") or d.get("chipset", ""))
+                if not target_chip:
+                    html += "<td class='center'>데이터 없음</td>"
+                    continue
+                
+                comp = compare_chips(base_chip, target_chip)
+                
+                html += "<td class='center'>"
+                for k, v in comp.items():
+                    cls = "win" if v >= 100 else "lose"
+                    html += f"<span class='{cls}'>{k.upper()}: {v}%</span><br>"
+                html += "</td>"
+            html += "</tr>"
+
+        html += "</table>"
+        st.markdown(html, unsafe_allow_html=True)
+
+else:
+    st.info("제품을 입력한 후 '비교 시작' 버튼을 눌러주세요.")
